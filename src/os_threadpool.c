@@ -10,7 +10,7 @@
 #include "utils.h"
 
 /* Create a task that would be executed by a thread. */
-os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(void *))
+os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(void *), unsigned int id)
 {
 	os_task_t *t;
 
@@ -20,6 +20,7 @@ os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(vo
 	t->action = action;		// the function
 	t->argument = arg;		// arguments for the function
 	t->destroy_arg = destroy_arg;	// destroy argument function
+	t->id = id;
 
 	return t;
 }
@@ -38,7 +39,14 @@ void enqueue_task(os_threadpool_t *tp, os_task_t *t)
 	assert(tp != NULL);
 	assert(t != NULL);
 
-	/* TODO: Enqueue task to the shared task queue. Use synchronization. */
+	pthread_mutex_lock(&tp->list_mutex);
+	list_add_tail(tp->head.next, &t->list);
+	pthread_mutex_unlock(&tp->list_mutex);
+
+	pthread_mutex_lock(&tp->num_enqueued_mutex);
+	tp->num_enqueued++;
+	// log_debug("New task enqueued[%d]: node %d by thread %lu\n", tp->num_enqueued, t->id, pthread_self());
+	pthread_mutex_unlock(&tp->num_enqueued_mutex);
 }
 
 /*
@@ -59,10 +67,31 @@ static int queue_is_empty(os_threadpool_t *tp)
 
 os_task_t *dequeue_task(os_threadpool_t *tp)
 {
-	os_task_t *t;
+	os_task_t *t = NULL;
+	unsigned int num_tasks;
 
-	/* TODO: Dequeue task from the shared task queue. Use synchronization. */
-	return NULL;
+	do {
+		pthread_mutex_lock(&tp->list_mutex);
+		if(!queue_is_empty(tp)) {
+			t = list_entry(tp->head.next, os_task_t, list);
+			list_del(tp->head.next);
+
+			
+		}
+		pthread_mutex_unlock(&tp->list_mutex);
+
+		num_tasks = atomic_load(&tp->num_tasks);
+
+		if (num_tasks == tp->max_num_nodes - 1)
+			return NULL;
+
+	} while(!t);
+
+	pthread_mutex_lock(&tp->num_dequeued_mutex);
+	tp->num_dequeued++;
+	//log_debug("New task dequeued[%d]: %d by thread %lu\n", tp->num_dequeued, t->id, pthread_self());
+	pthread_mutex_unlock(&tp->num_dequeued_mutex);
+	return t;
 }
 
 /* Loop function for threads */
@@ -77,16 +106,23 @@ static void *thread_loop_function(void *arg)
 		if (t == NULL)
 			break;
 		t->action(t->argument);
+		atomic_fetch_add(&tp->num_tasks, 1);
 		destroy_task(t);
 	}
 
+	atomic_fetch_add(&tp->exited_threads, 1);
 	return NULL;
 }
 
 /* Wait completion of all threads. This is to be called by the main thread. */
 void wait_for_completion(os_threadpool_t *tp)
 {
-	/* TODO: Wait for all worker threads. Use synchronization. */
+	while (1) {
+		if (threads_are_done(tp))
+			break;
+	}
+
+	//log_debug("num_tasks: %d\n", tp->num_tasks);
 
 	/* Join all worker threads. */
 	for (unsigned int i = 0; i < tp->num_threads; i++)
@@ -94,7 +130,7 @@ void wait_for_completion(os_threadpool_t *tp)
 }
 
 /* Create a new threadpool. */
-os_threadpool_t *create_threadpool(unsigned int num_threads)
+os_threadpool_t *create_threadpool(unsigned int num_threads, unsigned int max_num_nodes)
 {
 	os_threadpool_t *tp = NULL;
 	int rc;
@@ -105,7 +141,19 @@ os_threadpool_t *create_threadpool(unsigned int num_threads)
 	list_init(&tp->head);
 
 	/* TODO: Initialize synchronization data. */
+	pthread_mutex_init(&tp->list_mutex, NULL);
+	pthread_mutex_init(&tp->num_enqueued_mutex, NULL);
+	pthread_mutex_init(&tp->num_dequeued_mutex, NULL);
 
+	pthread_mutex_init(&tp->condvar_mutex, NULL);
+	pthread_cond_init(&tp->enqueue_signal, NULL);
+
+	tp->num_enqueued = 0;
+	tp->exited_threads = 0;
+	tp->num_tasks = 0;
+	tp->num_dequeued = 0;
+
+	tp->max_num_nodes = max_num_nodes;
 	tp->num_threads = num_threads;
 	tp->threads = malloc(num_threads * sizeof(*tp->threads));
 	DIE(tp->threads == NULL, "malloc");
@@ -122,7 +170,12 @@ void destroy_threadpool(os_threadpool_t *tp)
 {
 	os_list_node_t *n, *p;
 
-	/* TODO: Cleanup synchronization data. */
+	pthread_mutex_destroy(&tp->list_mutex);
+	pthread_mutex_destroy(&tp->num_enqueued_mutex);
+	pthread_mutex_destroy(&tp->num_dequeued_mutex);
+
+	pthread_mutex_destroy(&tp->condvar_mutex);
+	pthread_cond_destroy(&tp->enqueue_signal);
 
 	list_for_each_safe(n, p, &tp->head) {
 		list_del(n);
@@ -131,4 +184,9 @@ void destroy_threadpool(os_threadpool_t *tp)
 
 	free(tp->threads);
 	free(tp);
+}
+
+unsigned int threads_are_done(os_threadpool_t *tp)
+{
+	return tp->exited_threads == tp->num_threads;	
 }
