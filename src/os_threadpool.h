@@ -25,6 +25,8 @@ typedef struct os_threadpool {
 	/* Synchronization data */
 	_Atomic unsigned int num_tasks;
 	_Atomic unsigned int exited_threads;
+	_Atomic unsigned int enqueue_is_done;
+	_Atomic unsigned int enqueued_tasks;
 	unsigned int max_num_nodes;
 
 	unsigned int num_dequeued;

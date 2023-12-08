@@ -45,7 +45,7 @@ void enqueue_task(os_threadpool_t *tp, os_task_t *t)
 
 	pthread_mutex_lock(&tp->num_enqueued_mutex);
 	tp->num_enqueued++;
-	// log_debug("New task enqueued[%d]: node %d by thread %lu\n", tp->num_enqueued, t->id, pthread_self());
+	//log_debug("New task enqueued[%d]: node %d by thread %lu\n", tp->num_enqueued, t->id, pthread_self());
 	pthread_mutex_unlock(&tp->num_enqueued_mutex);
 }
 
@@ -68,6 +68,8 @@ static int queue_is_empty(os_threadpool_t *tp)
 os_task_t *dequeue_task(os_threadpool_t *tp)
 {
 	os_task_t *t = NULL;
+	unsigned int enqueue_is_done;
+	unsigned int enqueued_tasks;
 	unsigned int num_tasks;
 
 	do {
@@ -75,15 +77,18 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 		if(!queue_is_empty(tp)) {
 			t = list_entry(tp->head.next, os_task_t, list);
 			list_del(tp->head.next);
-
-			
 		}
 		pthread_mutex_unlock(&tp->list_mutex);
 
-		num_tasks = atomic_load(&tp->num_tasks);
+		enqueue_is_done = atomic_load(&tp->enqueue_is_done);
+		if (!enqueue_is_done)
+			continue;
 
-		if (num_tasks == tp->max_num_nodes - 1)
+		enqueued_tasks = atomic_load(&tp->enqueued_tasks);
+		num_tasks = atomic_load(&tp->num_tasks);
+		if (enqueued_tasks == num_tasks)
 			return NULL;
+
 
 	} while(!t);
 
@@ -147,10 +152,13 @@ os_threadpool_t *create_threadpool(unsigned int num_threads, unsigned int max_nu
 
 	pthread_mutex_init(&tp->condvar_mutex, NULL);
 	pthread_cond_init(&tp->enqueue_signal, NULL);
+	
+	atomic_store(&tp->enqueue_is_done, 0);
+	atomic_store(&tp->enqueued_tasks, 0);
+	atomic_store(&tp->num_tasks, 0);
 
 	tp->num_enqueued = 0;
 	tp->exited_threads = 0;
-	tp->num_tasks = 0;
 	tp->num_dequeued = 0;
 
 	tp->max_num_nodes = max_num_nodes;

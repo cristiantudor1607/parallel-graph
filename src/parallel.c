@@ -22,6 +22,24 @@ static os_threadpool_t *tp;
 pthread_mutex_t visited_mutex;
 
 /* TODO: Define graph task argument. */
+static void destory_uint(void *heap_uint)
+{
+	free(heap_uint);
+}
+
+// This function will become process_node() if it works
+static void task_function(void *heap_uint)
+{
+	unsigned int idx = *(unsigned int *)heap_uint;
+	//log_debug("Processing %d by thread %lu\n", idx, pthread_self());
+
+	atomic_fetch_add(&sum, graph->nodes[idx]->info);
+	//log_debug("Sum at %d is %d by thread %lu\n", idx, sum, pthread_self());
+
+	pthread_mutex_lock(&visited_mutex);
+	graph->visited[idx] = DONE;
+	pthread_mutex_unlock(&visited_mutex);
+}
 
 static void *get_uint(unsigned int integer)
 {
@@ -33,52 +51,33 @@ static void *get_uint(unsigned int integer)
 	return (void *)heap_uint;
 }
 
-static void free_uint(void *heap_uint)
-{
-	free(heap_uint);
-}
 
-static void process_node(void *arg)
+static void graph_loop_function(unsigned int idx)
 {
-	unsigned int idx = *(unsigned int *)arg;
-	//log_debug("Processing %d by thread %lu\n", idx, pthread_self());
-
-	atomic_fetch_add(&sum, graph->nodes[idx]->info);
-	//log_debug("Sum at %d is %d by thread %lu\n", idx, sum, pthread_self());
+	pthread_mutex_lock(&visited_mutex);
+	graph->visited[idx] = PROCESSING;
+	pthread_mutex_unlock(&visited_mutex);
 
 	for (unsigned int i = 0; i < graph->nodes[idx]->num_neighbours; i++) {
-		unsigned int new_arg = graph->nodes[idx]->neighbours[i];
-		
+		unsigned int arg = graph->nodes[idx]->neighbours[i];
+
 		pthread_mutex_lock(&visited_mutex);
-		if (graph->visited[new_arg] != NOT_VISITED) {
+		if (graph->visited[arg] != NOT_VISITED) {
 			pthread_mutex_unlock(&visited_mutex);
 			continue;
 		}
-
-		graph->visited[new_arg] = PROCESSING;
 		pthread_mutex_unlock(&visited_mutex);
 
-		void *heap_uint = get_uint(new_arg);
-
-		os_task_t *new_task = create_task(&process_node, heap_uint, &free_uint, new_arg);
-
-		enqueue_task(tp, new_task);
+		graph_loop_function(arg);
 	}
 
+	void *heap_idx = get_uint(idx);
 
-	pthread_mutex_lock(&visited_mutex);
-	graph->visited[idx] = DONE;
-	pthread_mutex_unlock(&visited_mutex);
-}
+	os_task_t *new_task = create_task(&task_function, heap_idx, &destory_uint, idx);
 
-static void setup_start_node(void *arg)
-{
-	unsigned int start_node = *(unsigned int *)arg;
+	enqueue_task(tp, new_task);
 
-	pthread_mutex_lock(&visited_mutex);
-	graph->visited[start_node] = PROCESSING;
-	pthread_mutex_unlock(&visited_mutex);
-
+	atomic_fetch_add(&tp->enqueued_tasks, 1);
 }
 
 int main(int argc, char *argv[])
@@ -99,11 +98,16 @@ int main(int argc, char *argv[])
 	/* TODO: Initialize graph synchronization mechanisms. */
 	pthread_mutex_init(&visited_mutex, NULL);
 
-	tp = create_threadpool(NUM_THREADS, graph->num_nodes);
-	unsigned int start = STARTING_NODE;
+	atomic_store(&sum, 0);
 
-	setup_start_node(&start);
-	process_node(&start);
+	tp = create_threadpool(NUM_THREADS, graph->num_nodes);
+	//unsigned int start = STARTING_NODE;
+	//setup_start_node(&start);
+	//process_node(&start);
+
+	graph_loop_function(STARTING_NODE);
+	atomic_store(&tp->enqueue_is_done, 1);
+	//log_trace("Enqueued tasks: %d\n", atomic_load(&tp->enqueued_tasks));
 	wait_for_completion(tp);
 	destroy_threadpool(tp);
 
