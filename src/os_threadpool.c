@@ -68,7 +68,7 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 
 	do {
 		pthread_mutex_lock(&tp->list_mutex);
-		if(!queue_is_empty(tp)) {
+		if (!queue_is_empty(tp)) {
 			t = list_entry(tp->head.next, os_task_t, list);
 			list_del(tp->head.next);
 		}
@@ -84,7 +84,7 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 			return NULL;
 
 
-	} while(!t);
+	} while (!t);
 
 	return t;
 }
@@ -155,7 +155,6 @@ os_threadpool_t *create_threadpool(unsigned int num_threads)
 void destroy_threadpool(os_threadpool_t *tp)
 {
 	pthread_mutex_destroy(&tp->list_mutex);
-	
 	os_list_node_t *n, *p;
 
 	list_for_each_safe(n, p, &tp->head) {
@@ -169,5 +168,5 @@ void destroy_threadpool(os_threadpool_t *tp)
 
 unsigned int threads_are_done(os_threadpool_t *tp)
 {
-	return tp->exited_threads == tp->num_threads;	
+	return tp->exited_threads == tp->num_threads;
 }
