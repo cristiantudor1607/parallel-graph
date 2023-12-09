@@ -10,7 +10,7 @@
 #include "utils.h"
 
 /* Create a task that would be executed by a thread. */
-os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(void *), unsigned int id)
+os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(void *))
 {
 	os_task_t *t;
 
@@ -20,7 +20,6 @@ os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(vo
 	t->action = action;		// the function
 	t->argument = arg;		// arguments for the function
 	t->destroy_arg = destroy_arg;	// destroy argument function
-	t->id = id;
 
 	return t;
 }
@@ -42,11 +41,6 @@ void enqueue_task(os_threadpool_t *tp, os_task_t *t)
 	pthread_mutex_lock(&tp->list_mutex);
 	list_add_tail(tp->head.next, &t->list);
 	pthread_mutex_unlock(&tp->list_mutex);
-
-	pthread_mutex_lock(&tp->num_enqueued_mutex);
-	tp->num_enqueued++;
-	//log_debug("New task enqueued[%d]: node %d by thread %lu\n", tp->num_enqueued, t->id, pthread_self());
-	pthread_mutex_unlock(&tp->num_enqueued_mutex);
 }
 
 /*
@@ -92,10 +86,6 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 
 	} while(!t);
 
-	pthread_mutex_lock(&tp->num_dequeued_mutex);
-	tp->num_dequeued++;
-	//log_debug("New task dequeued[%d]: %d by thread %lu\n", tp->num_dequeued, t->id, pthread_self());
-	pthread_mutex_unlock(&tp->num_dequeued_mutex);
 	return t;
 }
 
@@ -127,15 +117,13 @@ void wait_for_completion(os_threadpool_t *tp)
 			break;
 	}
 
-	//log_debug("num_tasks: %d\n", tp->num_tasks);
-
 	/* Join all worker threads. */
 	for (unsigned int i = 0; i < tp->num_threads; i++)
 		pthread_join(tp->threads[i], NULL);
 }
 
 /* Create a new threadpool. */
-os_threadpool_t *create_threadpool(unsigned int num_threads, unsigned int max_num_nodes)
+os_threadpool_t *create_threadpool(unsigned int num_threads)
 {
 	os_threadpool_t *tp = NULL;
 	int rc;
@@ -145,23 +133,13 @@ os_threadpool_t *create_threadpool(unsigned int num_threads, unsigned int max_nu
 
 	list_init(&tp->head);
 
-	/* TODO: Initialize synchronization data. */
+	/* Synchronization data initialization */
 	pthread_mutex_init(&tp->list_mutex, NULL);
-	pthread_mutex_init(&tp->num_enqueued_mutex, NULL);
-	pthread_mutex_init(&tp->num_dequeued_mutex, NULL);
-
-	pthread_mutex_init(&tp->condvar_mutex, NULL);
-	pthread_cond_init(&tp->enqueue_signal, NULL);
-	
 	atomic_store(&tp->enqueue_is_done, 0);
 	atomic_store(&tp->enqueued_tasks, 0);
 	atomic_store(&tp->num_tasks, 0);
+	atomic_store(&tp->exited_threads, 0);
 
-	tp->num_enqueued = 0;
-	tp->exited_threads = 0;
-	tp->num_dequeued = 0;
-
-	tp->max_num_nodes = max_num_nodes;
 	tp->num_threads = num_threads;
 	tp->threads = malloc(num_threads * sizeof(*tp->threads));
 	DIE(tp->threads == NULL, "malloc");
@@ -176,14 +154,9 @@ os_threadpool_t *create_threadpool(unsigned int num_threads, unsigned int max_nu
 /* Destroy a threadpool. Assume all threads have been joined. */
 void destroy_threadpool(os_threadpool_t *tp)
 {
-	os_list_node_t *n, *p;
-
 	pthread_mutex_destroy(&tp->list_mutex);
-	pthread_mutex_destroy(&tp->num_enqueued_mutex);
-	pthread_mutex_destroy(&tp->num_dequeued_mutex);
-
-	pthread_mutex_destroy(&tp->condvar_mutex);
-	pthread_cond_destroy(&tp->enqueue_signal);
+	
+	os_list_node_t *n, *p;
 
 	list_for_each_safe(n, p, &tp->head) {
 		list_del(n);
