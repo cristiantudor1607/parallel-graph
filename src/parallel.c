@@ -61,6 +61,7 @@ int main(int argc, char *argv[])
 static void *get_uint(unsigned int integer)
 {
 	unsigned int *heap_uint = malloc(sizeof(unsigned int));
+
 	DIE(!heap_uint, "malloc failed\n");
 
 	*heap_uint = integer;

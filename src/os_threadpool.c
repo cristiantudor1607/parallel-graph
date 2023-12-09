@@ -82,8 +82,6 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 		num_tasks = atomic_load(&tp->num_tasks);
 		if (enqueued_tasks == num_tasks)
 			return NULL;
-
-
 	} while (!t);
 
 	return t;
