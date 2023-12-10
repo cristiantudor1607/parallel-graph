@@ -140,9 +140,8 @@ static void *thread_loop_function(void *arg)
 void wait_for_completion(os_threadpool_t *tp)
 {
 	/* Join all worker threads. */
-	for (unsigned int i = 0; i < tp->num_threads; i++) {
+	for (unsigned int i = 0; i < tp->num_threads; i++)
 		pthread_join(tp->threads[i], NULL);
-	}
 }
 
 /* Create a new threadpool. */
@@ -206,9 +205,4 @@ void destroy_threadpool(os_threadpool_t *tp)
 
 	free(tp->threads);
 	free(tp);
-}
-
-unsigned int threads_are_done(os_threadpool_t *tp)
-{
-	return tp->exited_threads == tp->num_threads;
 }

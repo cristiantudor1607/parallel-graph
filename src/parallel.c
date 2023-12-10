@@ -39,14 +39,15 @@ int main(int argc, char *argv[])
 
 	graph = create_graph_from_file(input_file);
 
-	/* Synchronization mechanisms initialization */
+	// Synchronization mechanisms initialization
 	pthread_mutex_init(&visited_mutex, NULL);
 	atomic_store(&sum, 0);
 
 	tp = create_threadpool(NUM_THREADS);
 
-	/* Create the first task */
+	// Create the first task
 	void *starting_node = get_uint(STARTING_NODE);
+
 	graph->visited[STARTING_NODE] = PROCESSING;
 	os_task_t *first_task = create_task(&parallel_process_node, starting_node, &destory_uint, 0);
 	enqueue_task(tp, first_task);
@@ -54,7 +55,7 @@ int main(int argc, char *argv[])
 	wait_for_completion(tp);
 	destroy_threadpool(tp);
 
-	/* Synchronization mechanisms destruction */
+	// Synchronization mechanisms destruction
 	pthread_mutex_destroy(&visited_mutex);
 
 	printf("%d", sum);
@@ -84,8 +85,8 @@ static void parallel_process_node(void *heap_uint)
 
 	atomic_fetch_add(&sum, graph->nodes[idx]->info);
 
-	/* Go through the neighbours, and if they aren't visited, create new tasks
-	for them */
+	// Go through the neighbours, and if they aren't visited, create new tasks
+	// for them
 	for (unsigned int i = 0; i < graph->nodes[idx]->num_neighbours; i++) {
 		unsigned int arg = graph->nodes[idx]->neighbours[i];
 
@@ -100,6 +101,7 @@ static void parallel_process_node(void *heap_uint)
 		void *heap_idx = get_uint(arg);
 
 		os_task_t *new_task = create_task(&parallel_process_node, heap_idx, &destory_uint, arg);
+
 		enqueue_task(tp, new_task);
 	}
 
