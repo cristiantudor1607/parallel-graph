@@ -166,13 +166,12 @@ os_threadpool_t *create_threadpool(unsigned int num_threads)
 	pthread_mutex_init(&tp->list_mutex, NULL);
 	pthread_mutex_init(&tp->list_signal_mutex, NULL);
 	pthread_cond_init(&tp->list_signal, NULL);
-	
+
 	pthread_mutex_init(&tp->enqueue_mutex, NULL);
 	pthread_cond_init(&tp->enqueue_signal, NULL);
 
 	pthread_mutex_init(&tp->waiting_mutex, NULL);
 
-	
 	tp->num_threads = num_threads;
 	tp->threads = malloc(num_threads * sizeof(*tp->threads));
 	DIE(tp->threads == NULL, "malloc");

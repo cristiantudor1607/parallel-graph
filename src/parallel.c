@@ -50,6 +50,7 @@ int main(int argc, char *argv[])
 
 	graph->visited[STARTING_NODE] = PROCESSING;
 	os_task_t *first_task = create_task(&parallel_process_node, starting_node, &destory_uint, 0);
+
 	enqueue_task(tp, first_task);
 
 	wait_for_completion(tp);
