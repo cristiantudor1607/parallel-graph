@@ -17,12 +17,9 @@
 static _Atomic int sum;
 static os_graph_t *graph;
 static os_threadpool_t *tp;
+
+// Mutex used to read and write to visited array of the graph
 pthread_mutex_t visited_mutex;
-pthread_mutex_t sum_mutex;
-
-
-static void process_node(void *heap_uint);
-static void graph_loop_function(unsigned int idx);
 
 static void *get_uint(unsigned int integer);
 static void destory_uint(void *heap_uint);
@@ -42,14 +39,13 @@ int main(int argc, char *argv[])
 
 	graph = create_graph_from_file(input_file);
 
-	/* TODO: Initialize graph synchronization mechanisms. */
+	/* Synchronization mechanisms initialization */
 	pthread_mutex_init(&visited_mutex, NULL);
-	pthread_mutex_init(&sum_mutex, NULL);
-
 	atomic_store(&sum, 0);
 
 	tp = create_threadpool(NUM_THREADS);
 
+	/* Create the first task */
 	void *starting_node = get_uint(STARTING_NODE);
 	graph->visited[STARTING_NODE] = PROCESSING;
 	os_task_t *first_task = create_task(&parallel_process_node, starting_node, &destory_uint, 0);
@@ -58,8 +54,8 @@ int main(int argc, char *argv[])
 	wait_for_completion(tp);
 	destroy_threadpool(tp);
 
+	/* Synchronization mechanisms destruction */
 	pthread_mutex_destroy(&visited_mutex);
-	pthread_mutex_destroy(&sum_mutex);
 
 	printf("%d", sum);
 
@@ -77,59 +73,19 @@ static void *get_uint(unsigned int integer)
 	return (void *)heap_uint;
 }
 
-static void process_node(void *heap_uint)
-{
-	unsigned int idx = *(unsigned int *)heap_uint;
-
-	atomic_fetch_add(&sum, graph->nodes[idx]->info);
-
-	pthread_mutex_lock(&visited_mutex);
-	graph->visited[idx] = DONE;
-	pthread_mutex_unlock(&visited_mutex);
-}
-
 static void destory_uint(void *heap_uint)
 {
 	free(heap_uint);
 }
 
-static void graph_loop_function(unsigned int idx)
-{
-	pthread_mutex_lock(&visited_mutex);
-	graph->visited[idx] = PROCESSING;
-	pthread_mutex_unlock(&visited_mutex);
-
-	for (unsigned int i = 0; i < graph->nodes[idx]->num_neighbours; i++) {
-		unsigned int arg = graph->nodes[idx]->neighbours[i];
-
-		pthread_mutex_lock(&visited_mutex);
-		if (graph->visited[arg] != NOT_VISITED) {
-			pthread_mutex_unlock(&visited_mutex);
-			continue;
-		}
-		pthread_mutex_unlock(&visited_mutex);
-
-		graph_loop_function(arg);
-	}
-
-	void *heap_idx = get_uint(idx);
-
-	os_task_t *new_task = create_task(&process_node, heap_idx, &destory_uint, idx);
-
-	enqueue_task(tp, new_task);
-
-	atomic_fetch_add(&tp->enqueued_tasks, 1);
-}
-
 static void parallel_process_node(void *heap_uint)
 {
 	unsigned int idx = *(unsigned int *)heap_uint;
-	pthread_mutex_lock(&sum_mutex);
-	//log_debug("Processing node %d: sum before is %d\n", idx, atomic_load(&sum));
-	atomic_fetch_add(&sum, graph->nodes[idx]->info);
-	//log_debug("Processing node %d: sum after is %d\n", idx, atomic_load(&sum));
-	pthread_mutex_unlock(&sum_mutex);
 
+	atomic_fetch_add(&sum, graph->nodes[idx]->info);
+
+	/* Go through the neighbours, and if they aren't visited, create new tasks
+	for them */
 	for (unsigned int i = 0; i < graph->nodes[idx]->num_neighbours; i++) {
 		unsigned int arg = graph->nodes[idx]->neighbours[i];
 
@@ -141,10 +97,9 @@ static void parallel_process_node(void *heap_uint)
 		graph->visited[arg] = PROCESSING;
 		pthread_mutex_unlock(&tp->list_mutex);
 
-
 		void *heap_idx = get_uint(arg);
-		os_task_t *new_task = create_task(&parallel_process_node, heap_idx, &destory_uint, arg);
 
+		os_task_t *new_task = create_task(&parallel_process_node, heap_idx, &destory_uint, arg);
 		enqueue_task(tp, new_task);
 	}
 
