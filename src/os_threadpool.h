@@ -14,7 +14,6 @@ typedef struct {
 	void *argument;
 	void (*action)(void *arg);
 	void (*destroy_arg)(void *arg);
-	unsigned int id;
 	os_list_node_t list;
 } os_task_t;
 
@@ -23,14 +22,9 @@ typedef struct os_threadpool {
 	pthread_t *threads;
 
 	/* Synchronization data */
-	_Atomic unsigned int num_tasks;
-	_Atomic unsigned int exited_threads;
 	_Atomic unsigned int enqueued_tasks;
-	_Atomic unsigned int dequeued_tasks;
-	_Atomic unsigned int leave;
-	pthread_mutex_t list_mutex;
-
 	_Atomic unsigned int waiting_threads;
+	pthread_mutex_t list_mutex;
 	pthread_mutex_t waiting_mutex;
 
 	pthread_cond_t list_signal;
@@ -49,7 +43,7 @@ typedef struct os_threadpool {
 	os_list_node_t head;
 } os_threadpool_t;
 
-os_task_t *create_task(void (*f)(void *), void *arg, void (*destroy_arg)(void *), unsigned int id);
+os_task_t *create_task(void (*f)(void *), void *arg, void (*destroy_arg)(void *));
 void destroy_task(os_task_t *t);
 
 os_threadpool_t *create_threadpool(unsigned int num_threads);

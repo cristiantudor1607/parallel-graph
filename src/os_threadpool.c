@@ -10,7 +10,7 @@
 #include "utils.h"
 
 /* Create a task that would be executed by a thread. */
-os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(void *), unsigned int id)
+os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(void *))
 {
 	os_task_t *t;
 
@@ -20,7 +20,6 @@ os_task_t *create_task(void (*action)(void *), void *arg, void (*destroy_arg)(vo
 	t->action = action;		// the function
 	t->argument = arg;		// arguments for the function
 	t->destroy_arg = destroy_arg;	// destroy argument function
-	t->id = id;
 
 	return t;
 }
@@ -40,9 +39,10 @@ void enqueue_task(os_threadpool_t *tp, os_task_t *t)
 	assert(t != NULL);
 
 	pthread_mutex_lock(&tp->list_mutex);
+
 	list_add_tail(tp->head.next, &t->list);
-	//log_debug("Enqueued %d by thread %lu\n", t->id, pthread_self());
 	atomic_store(&tp->enqueued_tasks, 1);
+
 	pthread_cond_signal(&tp->list_signal);
 	pthread_mutex_unlock(&tp->list_mutex);
 
@@ -71,10 +71,12 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 {
 	os_task_t *t = NULL;
 
+	// Wait for the first enqueue to happen
+	// When it happens all the threads waiting will escape, and they'll block
+	// at the next mutex
 	pthread_mutex_lock(&tp->enqueue_mutex);
 	while (!atomic_load(&tp->enqueued_tasks)) {
-		//log_debug("Thread waiting for first enqueue: %lu\n", pthread_self());
-		//log_debug("");
+		// Increase the number of waiting threads
 		pthread_mutex_lock(&tp->waiting_mutex);
 		atomic_fetch_add(&tp->waiting_threads, 1);
 		pthread_mutex_unlock(&tp->waiting_mutex);
@@ -86,14 +88,13 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 	}
 	pthread_mutex_unlock(&tp->enqueue_mutex);
 
+	// Wait until something is enqueued
 	pthread_mutex_lock(&tp->list_mutex);
 	while (queue_is_empty(tp)) {
 		atomic_fetch_add(&tp->waiting_threads, 1);
-		//log_debug("%d are waiting at queue_is_empty\n", atomic_load(&tp->waiting_threads));
-		//log_debug("%d have left\n", atomic_load(&tp->exited_threads));
 
+		// If all threads are waiting here, then it is done
 		if (atomic_load(&tp->waiting_threads) == tp->num_threads) {
-			atomic_store(&tp->leave, 1);
 			pthread_cond_broadcast(&tp->list_signal);
 			pthread_mutex_unlock(&tp->list_mutex);
 			return NULL;
@@ -101,6 +102,8 @@ os_task_t *dequeue_task(os_threadpool_t *tp)
 
 		pthread_cond_wait(&tp->list_signal, &tp->list_mutex);
 
+		// If the thread recieved a signal, then it could be a signal
+		// to leave the program, sent from if block from above
 		if (atomic_load(&tp->waiting_threads) == tp->num_threads) {
 			pthread_mutex_unlock(&tp->list_mutex);
 			return NULL;
@@ -124,12 +127,9 @@ static void *thread_loop_function(void *arg)
 		os_task_t *t;
 
 		t = dequeue_task(tp);
-		if (t == NULL) {
-			atomic_fetch_add(&tp->exited_threads, 1);
+		if (t == NULL)
 			break;
-		}
 		t->action(t->argument);
-		atomic_fetch_add(&tp->num_tasks, 1);
 		destroy_task(t);
 	}
 
@@ -156,12 +156,8 @@ os_threadpool_t *create_threadpool(unsigned int num_threads)
 	list_init(&tp->head);
 
 	/* Synchronization data initialization */
-	atomic_store(&tp->num_tasks, 0);
-	atomic_store(&tp->exited_threads, 0);
 	atomic_store(&tp->waiting_threads, 0);
 	atomic_store(&tp->enqueued_tasks, 0);
-	atomic_store(&tp->dequeued_tasks, 0);
-	atomic_store(&tp->leave, 0);
 
 	pthread_mutex_init(&tp->list_mutex, NULL);
 	pthread_mutex_init(&tp->list_signal_mutex, NULL);

@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
 	void *starting_node = get_uint(STARTING_NODE);
 
 	graph->visited[STARTING_NODE] = PROCESSING;
-	os_task_t *first_task = create_task(&parallel_process_node, starting_node, &destory_uint, 0);
+	os_task_t *first_task = create_task(&parallel_process_node, starting_node, &destory_uint);
 
 	enqueue_task(tp, first_task);
 
@@ -101,12 +101,12 @@ static void parallel_process_node(void *heap_uint)
 
 		void *heap_idx = get_uint(arg);
 
-		os_task_t *new_task = create_task(&parallel_process_node, heap_idx, &destory_uint, arg);
+		os_task_t *new_task = create_task(&parallel_process_node, heap_idx, &destory_uint);
 
 		enqueue_task(tp, new_task);
 	}
 
-
+	// Mark the node as DONE
 	pthread_mutex_lock(&tp->list_mutex);
 	graph->visited[idx] = DONE;
 	pthread_mutex_unlock(&tp->list_mutex);
